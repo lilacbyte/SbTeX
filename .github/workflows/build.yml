@@ -1,0 +1,40 @@
+name: Build SbTeX
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libcairo2-dev python3
+
+      - name: Build and test
+        run: make test JOBS=2
+
+      - name: Stage executable and fonts
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/sbtex"
+          cp README.md LICENSE "$RUNNER_TEMP/sbtex/"
+          cd "$RUNNER_TEMP"
+          ./sbtex/bin/sbtex -i 'hello stratish' -v -o preview.png
+          tar -czf "$GITHUB_WORKSPACE/sbtex-linux-x86_64.tar.gz" sbtex
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbtex-linux-x86_64
+          path: sbtex-linux-x86_64.tar.gz
+          if-no-files-found: error
