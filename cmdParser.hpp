@@ -2,6 +2,10 @@
 #include <filesystem>
 #include <string>
 
+struct Color {
+    double r, g, b;
+};
+
 struct Info {
     std::string input;
     std::string font = "sans";
@@ -11,6 +15,9 @@ struct Info {
     int verbosity = 0;
     bool help = false;
     bool advice = false;
+    Color background{1, 1, 1};
+    Color color{0, 0, 0};
+    bool recolor = false;
 };
 
 Info getInfo(int argc, char* argv[]);

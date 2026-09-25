@@ -11,6 +11,26 @@
 #define SBTEX_SOURCE_FONT_DIR ""
 #endif
 
+namespace {
+Color parseColor(const std::string& text, const std::string& option) {
+    const auto invalid = [&]() {
+        return std::runtime_error(option + " requires a hex colour such as '#fff' or '#ffffff'");
+    };
+    if ((text.size() != 4 && text.size() != 7) || text[0] != '#') throw invalid();
+    unsigned int rgb = 0;
+    for (std::size_t i = 1; i < text.size(); ++i) {
+        const char ch = text[i];
+        unsigned int digit;
+        if (ch >= '0' && ch <= '9') digit = ch - '0';
+        else if (ch >= 'a' && ch <= 'f') digit = ch - 'a' + 10;
+        else if (ch >= 'A' && ch <= 'F') digit = ch - 'A' + 10;
+        else throw invalid();
+        rgb = text.size() == 4 ? (rgb << 8) | (digit * 17) : (rgb << 4) | digit;
+    }
+    return {((rgb >> 16) & 255) / 255.0, ((rgb >> 8) & 255) / 255.0, (rgb & 255) / 255.0};
+}
+}
+
 Info getInfo(int argc, char* argv[]) {
     Info info;
     bool has_input = false;
@@ -26,6 +46,13 @@ Info getInfo(int argc, char* argv[]) {
         } else if (option == "-o" || option == "--output") info.outfile = value();
         else if (option == "-f" || option == "--font") info.font = value();
         else if (option == "--fonts-dir") info.fonts_dir = value();
+        else if (option == "-bg" || option == "--bg") {
+            info.background = parseColor(value(), option);
+            info.recolor = true;
+        } else if (option == "-color" || option == "--color") {
+            info.color = parseColor(value(), option);
+            info.recolor = true;
+        }
         else if (option == "--columns") {
             const auto text = value();
             const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), info.columns);

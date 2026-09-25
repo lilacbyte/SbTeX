@@ -2,6 +2,8 @@
 #include <cairo.h>
 #include <algorithm>
 #include <cstdio>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -23,6 +25,31 @@ Surface load(const std::filesystem::path& path) {
     Surface surface(cairo_image_surface_create_from_png(path.string().c_str()), cairo_surface_destroy);
     check(cairo_surface_status(surface.get()), "cannot load glyph " + path.string());
     return surface;
+}
+Surface inkMask(cairo_surface_t* source) {
+    const int width = cairo_image_surface_get_width(source);
+    const int height = cairo_image_surface_get_height(source);
+    Surface mask(cairo_image_surface_create(CAIRO_FORMAT_A8, width, height), cairo_surface_destroy);
+    check(cairo_surface_status(mask.get()), "cannot create glyph mask");
+    cairo_surface_flush(source);
+    cairo_surface_flush(mask.get());
+    const auto* pixels = cairo_image_surface_get_data(source);
+    auto* coverage = cairo_image_surface_get_data(mask.get());
+    const int source_stride = cairo_image_surface_get_stride(source);
+    const int mask_stride = cairo_image_surface_get_stride(mask.get());
+    const bool has_alpha = cairo_image_surface_get_format(source) == CAIRO_FORMAT_ARGB32;
+    for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+        std::uint32_t pixel;
+        std::memcpy(&pixel, pixels + y * source_stride + x * 4, sizeof(pixel));
+        const unsigned int alpha = has_alpha ? pixel >> 24 : 255;
+        // Cairo stores premultiplied RGB. Subtract luminance from alpha so
+        // white paper disappears while dark strokes retain their antialiasing.
+        const unsigned int luminance = (77 * ((pixel >> 16) & 255)
+            + 150 * ((pixel >> 8) & 255) + 29 * (pixel & 255) + 128) >> 8;
+        coverage[y * mask_stride + x] = static_cast<unsigned char>(alpha - std::min(alpha, luminance));
+    }
+    cairo_surface_mark_dirty(mask.get());
+    return mask;
 }
 cairo_status_t write_stdout(void*, const unsigned char* data, unsigned int length) {
     return std::fwrite(data, 1, length, stdout) == length ? CAIRO_STATUS_SUCCESS : CAIRO_STATUS_WRITE_ERROR;
@@ -66,14 +93,16 @@ void render(const Info& info, const std::filesystem::path& font) {
             path = font / "_fail.png";
             if (!std::filesystem::exists(path)) path = font.parent_path() / "_fail.png";
         }
-        glyphs.emplace(ch, load(path));
+        auto glyph = load(path);
+        if (info.recolor) glyph = inkMask(glyph.get());
+        glyphs.emplace(ch, std::move(glyph));
     }
     for (char ch : missing) std::cerr << "sbtex: missing glyph '" << ch << "'; using _fail.png\n";
 
     Surface output(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height), cairo_surface_destroy);
     check(cairo_surface_status(output.get()), "cannot create image");
     Context context(cairo_create(output.get()), cairo_destroy);
-    cairo_set_source_rgb(context.get(), 1, 1, 1);
+    cairo_set_source_rgb(context.get(), info.background.r, info.background.g, info.background.b);
     cairo_paint(context.get());
     for (std::size_t row = 0; row < lines.size(); ++row) {
         for (std::size_t col = 0; col < lines[row].size(); ++col) {
@@ -87,8 +116,13 @@ void render(const Info& info, const std::filesystem::path& font) {
             cairo_translate(context.get(), margin + col * cell + (cell - w * scale) / 2,
                             margin + row * cell + (cell - h * scale) / 2);
             cairo_scale(context.get(), scale, scale);
-            cairo_set_source_surface(context.get(), glyph, 0, 0);
-            cairo_paint(context.get());
+            if (info.recolor) {
+                cairo_set_source_rgb(context.get(), info.color.r, info.color.g, info.color.b);
+                cairo_mask_surface(context.get(), glyph, 0, 0);
+            } else {
+                cairo_set_source_surface(context.get(), glyph, 0, 0);
+                cairo_paint(context.get());
+            }
             cairo_restore(context.get());
         }
     }

@@ -33,13 +33,36 @@ def png(data, expected):
         if tag == b"IDAT":
             compressed += payload
         offset += size + 12
-    assert zlib.decompress(compressed)
+    raw = zlib.decompress(compressed)
+    assert raw
+    # Decode Cairo's RGB/RGBA output to check rendered colours, including
+    # the white paper in RGB fonts and transparent pixels in RGBA fonts.
+    assert data[24] == 8 and data[25] in (2, 6)
+    channels = 3 if data[25] == 2 else 4
+    stride = expected[0] * channels
+    previous = bytearray(stride)
+    rows = []
+    for y in range(expected[1]):
+        start = y * (stride + 1)
+        kind = raw[start]
+        row = bytearray(raw[start + 1:start + 1 + stride])
+        for x in range(stride):
+            left = row[x - channels] if x >= channels else 0
+            above = previous[x]
+            corner = previous[x - channels] if x >= channels else 0
+            p = left + above - corner
+            distances = [abs(p - left), abs(p - above), abs(p - corner)]
+            paeth = (left, above, corner)[distances.index(min(distances))]
+            row[x] = (row[x] + (0, left, above, (left + above) // 2, paeth)[kind]) & 255
+        rows.append([tuple(row[x:x + 3]) for x in range(0, stride, channels)])
+        previous = row
+    return rows
 
 
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     assert b"Usage:" in run("--help").stdout
-    for flag in ("-i", "-o", "-f", "--fonts-dir", "--columns"):
+    for flag in ("-i", "-o", "-f", "--fonts-dir", "--columns", "-bg", "-color"):
         assert b"missing value" in run(flag, ok=False).stderr
     run(ok=False)
     run("--unknown", ok=False)
@@ -51,6 +74,29 @@ with tempfile.TemporaryDirectory() as directory:
     run("-i", "A", extra_env={"SBTEX_FONTS_DIR": str(work / "absent")}, ok=False)
     png(run("-i", "abc", "-v").stdout, (340, 140))
     assert run("-i", "abc").stdout == run("-i", "ABC").stdout
+    for flag in ("-bg", "-color"):
+        for value in ("", "fff", "#ff", "#ffff", "#1234567", "#ggg", "#12 456", "#-ff"):
+            assert b"hex colour" in run("-i", "A", flag, value, ok=False).stderr
+    short = run("-i", "AB", "-bg", "#123", "-color", "#FaC").stdout
+    long = run("-i", "AB", "--bg", "#112233", "--color", "#ffaacc").stdout
+    assert short == long
+    rows = png(short, (240, 140))
+    assert rows[0][0] == (17, 34, 51)
+    for start in (20, 120):  # A is RGB, B is RGBA.
+        pixels = {pixel for row in rows[20:120] for pixel in row[start:start + 100]}
+        if start == 20:
+            assert (255, 170, 204) in pixels
+        else:  # B contains coloured ink, so its luminance affects coverage.
+            assert any(r > 100 for r, g, b in pixels)
+        assert (17, 34, 51) in pixels
+        assert (255, 255, 255) not in pixels
+    blank = png(run("-i", "", "-bg", "#abc").stdout, (140, 140))
+    assert all(pixel == (170, 187, 204) for row in blank for pixel in row)
+    foreground = png(run("-i", "A", "-color", "#f00").stdout, (140, 140))
+    assert foreground[0][0] == (255, 255, 255)
+    assert any((255, 0, 0) in row for row in foreground)
+    background = png(run("-i", "A", "-bg", "#abc").stdout, (140, 140))
+    assert any((0, 0, 0) in row for row in background)
     png(run("-i", "ABCD", "--columns", "2").stdout, (240, 240))
     png(run("-i", "A\nB").stdout, (140, 240))
     png(run("-i", "").stdout, (140, 140))

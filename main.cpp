@@ -14,6 +14,9 @@ int main(int argc, char* argv[]) {
                 "  -f, --font NAME     Font folder name; default sans\n"
                 "  --fonts-dir PATH    Parent of font folders (overrides SBTEX_FONTS_DIR)\n"
                 "  --columns N         Wrap after N cells, from 1 to 128\n"
+                "  -bg, --bg HEX       Background colour; default '#fff'\n"
+                "  -color, --color HEX Glyph colour; default '#000'\n"
+                "                      Colours accept '#rgb' or '#rrggbb'\n"
                 "  -v, -V              Print font/output details to stderr\n"
                 "  -h, --help          Show this help\n"
                 "Missing glyphs use _fail.png with a warning.\n";
