@@ -1,26 +1,17 @@
 #pragma once
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <error.h>
+#include <filesystem>
+#include <string>
 
-//#define VERBOSE_PARSER
-
-enum Verbosity{
-	DEBUG,
-	ERROR,
-	QUIET,
+struct Info {
+    std::string input;
+    std::string font = "sans";
+    std::filesystem::path fonts_dir;
+    std::filesystem::path outfile = "-";
+    int columns = 16;
+    int verbosity = 0;
+    bool help = false;
+    bool advice = false;
 };
 
-struct Info{
-	char * arg0; // name of the program, i.e., argv[0]
-	char * input;
-	const char * font;
-	char fontpath[256];
-	FILE * outfile;
-	Verbosity verbosity;
-	const char * outfile_name;
-};
-
-int getInfo(int argc, char* argv[], Info &info);
+Info getInfo(int argc, char* argv[]);
+std::filesystem::path resolveFont(const Info& info, const char* executable);
